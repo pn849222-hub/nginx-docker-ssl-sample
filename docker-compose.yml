@@ -1,0 +1,45 @@
+services:
+  app:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./app:/usr/share/nginx/html:ro
+    expose:
+      - "80"
+
+  certs:
+    image: alpine:3.20
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./certs:/certs
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /certs/fullchain.pem ] || [ ! -f /certs/privkey.pem ]; then
+          apk add --no-cache openssl
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /certs/privkey.pem \
+            -out /certs/fullchain.pem \
+            -subj "/CN=$${DOMAIN}"
+        fi
+
+  proxy:
+    image: nginx:1.27-alpine
+    depends_on:
+      app:
+        condition: service_started
+      certs:
+        condition: service_completed_successfully
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      NGINX_ENVSUBST_FILTER: ^DOMAIN$$
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./certs:/etc/nginx/certs:ro
+      - certbot-www:/var/www/certbot
+
+volumes:
+  certbot-www:
